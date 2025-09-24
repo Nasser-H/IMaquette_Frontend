@@ -18,6 +18,8 @@ export default function Project() {
 
   const maxZoom = 4
   const zoomStep = 0.1
+  const MIN_ZOOM_FACTOR = 1
+  const INITIAL_ZOOM_FACTOR = 1
 
   const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
@@ -34,6 +36,8 @@ export default function Project() {
     ctx.drawImage(img, 0, 0, imageWidth, imageHeight)
   }, [scale, tx, ty, imageWidth, imageHeight])
 
+  const didInitRef = useRef(false)
+
   const computeFit = useCallback(() => {
     const container = containerRef.current
     const canvas = canvasRef.current
@@ -49,15 +53,31 @@ export default function Project() {
     const margin = w <= 768 ? 0.01 : 0.002
     fit = Math.max(fit, widthRatio + margin, heightRatio + margin)
     fitScaleRef.current = fit
-    setScale((prev) => (prev < fit ? fit : prev))
 
-    const currentScale = Math.max(scale, fit)
-    const imgW = imageWidth * currentScale
-    const imgH = imageHeight * currentScale
-    const minTx = w - imgW
-    const minTy = h - imgH
-    setTx((prev) => clamp(prev, minTx, 0))
-    setTy((prev) => clamp(prev, minTy, 0))
+    // On first init: start exactly at fit (cover)
+    if (!didInitRef.current) {
+      const initial = fit * INITIAL_ZOOM_FACTOR
+      setScale(initial)
+      const imgW = imageWidth * initial
+      const imgH = imageHeight * initial
+      const minTx = w - imgW
+      const minTy = h - imgH
+      // align to top-left at cover (no gaps)
+      setTx(clamp(0, minTx, 0))
+      setTy(clamp(0, minTy, 0))
+      didInitRef.current = true
+    } else {
+      // Preserve current scale but clamp within new min/max (no zoom-out below fit)
+      const minAllowed = fit * MIN_ZOOM_FACTOR
+      setScale((prev) => clamp(prev, minAllowed, maxZoom))
+      const current = clamp(scale, minAllowed, maxZoom)
+      const imgW = imageWidth * current
+      const imgH = imageHeight * current
+      const minTx = w - imgW
+      const minTy = h - imgH
+      setTx((prev) => clamp(prev, minTx, 0))
+      setTy((prev) => clamp(prev, minTy, 0))
+    }
 
     requestAnimationFrame(redraw)
   }, [imageWidth, imageHeight, scale, redraw])
@@ -103,7 +123,7 @@ export default function Project() {
     const canvas = canvasRef.current
     if (!canvas) return
     const prev = scale
-    const minAllowed = fitScaleRef.current
+    const minAllowed = fitScaleRef.current * MIN_ZOOM_FACTOR
     const newS = clamp(nextScale, minAllowed, maxZoom)
     const rect = canvas.getBoundingClientRect()
     const cx = clientX ?? (rect.left + rect.width / 2)
@@ -117,8 +137,11 @@ export default function Project() {
     let nextTx = px - worldX * newS
     let nextTy = py - worldY * newS
     // Clamp translation to avoid any gaps
-    const minTx = canvas.width - imageWidth * newS
-    const minTy = canvas.height - imageHeight * newS
+    const imgW = imageWidth * newS
+    const imgH = imageHeight * newS
+    const minTx = canvas.width - imgW
+    const minTy = canvas.height - imgH
+    // do not allow gaps: clamp to edges
     nextTx = clamp(nextTx, minTx, 0)
     nextTy = clamp(nextTy, minTy, 0)
     setScale(newS)
@@ -158,8 +181,14 @@ export default function Project() {
       if (!isDraggingRef.current) return
       const dx = e.clientX - dragStartRef.current.x
       const dy = e.clientY - dragStartRef.current.y
-      const nextTx = clamp(dragStartRef.current.tx + dx, canvas.width - imageWidth * scale, 0)
-      const nextTy = clamp(dragStartRef.current.ty + dy, canvas.height - imageHeight * scale, 0)
+      const imgW = imageWidth * scale
+      const imgH = imageHeight * scale
+      const minTx = canvas.width - imgW
+      const minTy = canvas.height - imgH
+      const rawTx = dragStartRef.current.tx + dx
+      const rawTy = dragStartRef.current.ty + dy
+      const nextTx = clamp(rawTx, minTx, 0)
+      const nextTy = clamp(rawTy, minTy, 0)
       setTx(nextTx)
       setTy(nextTy)
     }
@@ -232,8 +261,14 @@ export default function Project() {
         if (!p) return
         const dx = p.x - dragStartRef.current.x
         const dy = p.y - dragStartRef.current.y
-        const nextTx = clamp(dragStartRef.current.tx + dx, canvas.width - imageWidth * scale, 0)
-        const nextTy = clamp(dragStartRef.current.ty + dy, canvas.height - imageHeight * scale, 0)
+        const imgW = imageWidth * scale
+        const imgH = imageHeight * scale
+        const minTx = canvas.width - imgW
+        const minTy = canvas.height - imgH
+        const rawTx = dragStartRef.current.tx + dx
+        const rawTy = dragStartRef.current.ty + dy
+        const nextTx = clamp(rawTx, minTx, 0)
+        const nextTy = clamp(rawTy, minTy, 0)
         setTx(nextTx)
         setTy(nextTy)
       }
