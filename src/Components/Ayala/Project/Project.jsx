@@ -4,8 +4,11 @@ export default function Project() {
   const containerRef = useRef(null)
   const isDraggingRef = useRef(false)
   const dragStartRef = useRef({ x: 0, y: 0, left: 0, top: 0 })
-  const dragAxisRef = useRef(null) // 'x' | 'y' | null
+  const dragAxisRef = useRef(null) // unused now; kept for minimal churn
   const fitScaleRef = useRef(1)
+  const activePointersRef = useRef(new Map()) // pointerId -> { x, y }
+  const pinchStartDistanceRef = useRef(null)
+  const pinchStartZoomRef = useRef(1)
   const [zoom, setZoom] = useState(1)
   const [baseWidth, setBaseWidth] = useState(1440)
   const [baseHeight, setBaseHeight] = useState(1024)
@@ -50,7 +53,7 @@ export default function Project() {
     })
   }, [zoom])
 
-  // Wheel behavior: always zoom (desktop). Phone uses native pinch zoom.
+  // Wheel behavior: always zoom (desktop). On touch, we handle pinch via Pointer Events.
   const handleWheel = useCallback((e) => {
     const el = containerRef.current
     if (!el) return
@@ -84,23 +87,9 @@ export default function Project() {
       if (!isDraggingRef.current) return
       const dx = e.clientX - dragStartRef.current.x
       const dy = e.clientY - dragStartRef.current.y
-      // Lock axis after small threshold to avoid diagonal moves
-      if (dragAxisRef.current === null) {
-        const absX = Math.abs(dx)
-        const absY = Math.abs(dy)
-        if (absX > 4 || absY > 4) {
-          dragAxisRef.current = absX > absY ? 'x' : 'y'
-        }
-      }
-      if (dragAxisRef.current === 'x') {
-        el.scrollLeft = dragStartRef.current.left - dx
-      } else if (dragAxisRef.current === 'y') {
-        el.scrollTop = dragStartRef.current.top - dy
-      } else {
-        // before lock, allow minor movement on both
-        el.scrollLeft = dragStartRef.current.left - dx
-        el.scrollTop = dragStartRef.current.top - dy
-      }
+      // Free pan on both axes
+      el.scrollLeft = dragStartRef.current.left - dx
+      el.scrollTop = dragStartRef.current.top - dy
     }
     const endDrag = () => {
       if (!isDraggingRef.current) return
@@ -126,6 +115,119 @@ export default function Project() {
     el.addEventListener('wheel', handleWheel, { passive: false })
     return () => el.removeEventListener('wheel', handleWheel)
   }, [handleWheel])
+
+  // Touch and pen gestures via Pointer Events (pinch to zoom, one-finger pan)
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+
+    const getTwoPointersInfo = () => {
+      const pts = Array.from(activePointersRef.current.values())
+      if (pts.length < 2) return null
+      const [p1, p2] = pts
+      const dx = p2.x - p1.x
+      const dy = p2.y - p1.y
+      const distance = Math.hypot(dx, dy)
+      const centerX = (p1.x + p2.x) / 2
+      const centerY = (p1.y + p2.y) / 2
+      return { distance, centerX, centerY }
+    }
+
+    const onPointerDown = (e) => {
+      if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+        // Prevent browser gestures; we manage them
+        e.preventDefault()
+        el.setPointerCapture?.(e.pointerId)
+        activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+
+        if (activePointersRef.current.size === 2) {
+          const info = getTwoPointersInfo()
+          if (info) {
+            pinchStartDistanceRef.current = info.distance
+            pinchStartZoomRef.current = zoom
+            // end any drag state when pinch starts
+            isDraggingRef.current = false
+            dragAxisRef.current = null
+          }
+        } else if (activePointersRef.current.size === 1) {
+          // initialize drag state for single finger pan
+          isDraggingRef.current = true
+          dragAxisRef.current = null
+          const p = activePointersRef.current.get(e.pointerId)
+          dragStartRef.current = {
+            x: p.x,
+            y: p.y,
+            left: el.scrollLeft,
+            top: el.scrollTop,
+          }
+        }
+      }
+    }
+
+    const onPointerMove = (e) => {
+      if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+        // Keep map updated
+        if (activePointersRef.current.has(e.pointerId)) {
+          activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+        }
+
+        if (activePointersRef.current.size >= 2 && pinchStartDistanceRef.current) {
+          e.preventDefault()
+          const info = getTwoPointersInfo()
+          if (!info) return
+          const scale = info.distance / (pinchStartDistanceRef.current || 1)
+          const nextZoom = pinchStartZoomRef.current * scale
+          applyZoom(nextZoom, info.centerX, info.centerY)
+        } else if (isDraggingRef.current && activePointersRef.current.size === 1) {
+          e.preventDefault()
+          const p = activePointersRef.current.get(e.pointerId)
+          if (!p) return
+          const dx = p.x - dragStartRef.current.x
+          const dy = p.y - dragStartRef.current.y
+          // Free pan on both axes
+          el.scrollLeft = dragStartRef.current.left - dx
+          el.scrollTop = dragStartRef.current.top - dy
+        }
+      }
+    }
+
+    const clearPointer = (pointerId) => {
+      activePointersRef.current.delete(pointerId)
+      if (activePointersRef.current.size < 2) {
+        pinchStartDistanceRef.current = null
+      }
+      if (activePointersRef.current.size === 0) {
+        isDraggingRef.current = false
+        dragAxisRef.current = null
+      }
+    }
+
+    const onPointerUp = (e) => {
+      if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+        e.preventDefault()
+        el.releasePointerCapture?.(e.pointerId)
+        clearPointer(e.pointerId)
+      }
+    }
+    const onPointerCancel = (e) => {
+      if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+        el.releasePointerCapture?.(e.pointerId)
+        clearPointer(e.pointerId)
+      }
+    }
+
+    el.addEventListener('pointerdown', onPointerDown, { passive: false })
+    el.addEventListener('pointermove', onPointerMove, { passive: false })
+    el.addEventListener('pointerup', onPointerUp, { passive: false })
+    el.addEventListener('pointercancel', onPointerCancel, { passive: false })
+
+    return () => {
+      el.removeEventListener('pointerdown', onPointerDown)
+      el.removeEventListener('pointermove', onPointerMove)
+      el.removeEventListener('pointerup', onPointerUp)
+      el.removeEventListener('pointercancel', onPointerCancel)
+    }
+  }, [applyZoom, zoom])
 
   // Auto-fit to fill screen on mount, on image load, and on resize (cover behavior)
   useEffect(() => {
@@ -167,7 +269,7 @@ export default function Project() {
     <div className="fixed inset-0 h-[100svh] bg-white flex flex-col overflow-hidden">
       <div
         ref={containerRef}
-        className="relative flex-1 h-full overflow-auto overscroll-none cursor-grab touch-pan-x touch-pan-y"
+        className="relative flex-1 h-full overflow-auto overscroll-none cursor-grab touch-none"
       >
         <div
           className="origin-top-left"
