@@ -130,6 +130,8 @@ export default function Project() {
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
+    // Ensure custom gesture handling across browsers
+    canvas.style.touchAction = 'none'
     const onWheel = (e) => {
       e.preventDefault()
       const direction = e.deltaY > 0 ? -1 : 1
@@ -267,6 +269,7 @@ export default function Project() {
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
+    canvas.style.touchAction = 'none'
     let touches = []
     let pinchStartDist = null
     let pinchStartScale = scale
@@ -327,6 +330,47 @@ export default function Project() {
       canvas.removeEventListener('touchcancel', onTouchEnd)
     }
   }, [scale, tx, ty, imageWidth, imageHeight, applyZoomCanvas])
+
+  // iOS Safari gesture events fallback
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    let gestureStartScale = scale
+    const onGestureStart = (e) => {
+      // @ts-ignore: non-standard event on iOS
+      e.preventDefault()
+      gestureStartScale = scale
+    }
+    const onGestureChange = (e) => {
+      // @ts-ignore: non-standard event on iOS
+      e.preventDefault()
+      const rect = canvas.getBoundingClientRect()
+      // @ts-ignore
+      const next = gestureStartScale * (e.scale || 1)
+      // Use canvas center as focal for lack of touch points
+      const cx = rect.left + rect.width / 2
+      const cy = rect.top + rect.height / 2
+      applyZoomCanvas(next, cx, cy)
+    }
+    const onGestureEnd = (e) => {
+      // @ts-ignore
+      e.preventDefault()
+    }
+    // @ts-ignore
+    canvas.addEventListener('gesturestart', onGestureStart, { passive: false })
+    // @ts-ignore
+    canvas.addEventListener('gesturechange', onGestureChange, { passive: false })
+    // @ts-ignore
+    canvas.addEventListener('gestureend', onGestureEnd, { passive: false })
+    return () => {
+      // @ts-ignore
+      canvas.removeEventListener('gesturestart', onGestureStart)
+      // @ts-ignore
+      canvas.removeEventListener('gesturechange', onGestureChange)
+      // @ts-ignore
+      canvas.removeEventListener('gestureend', onGestureEnd)
+    }
+  }, [scale, applyZoomCanvas])
 
   return (
     <div className="fixed inset-0 h-[100svh] bg-white flex flex-col overflow-hidden">
