@@ -8,8 +8,8 @@ import Project from './Components/Ayala/Project/Project'
 function App() {
   const routers = createBrowserRouter([
     {path: '', element: <Layout/>, children: [
-    {index:true, element: <Home/>},
-    {path:'/ayala', element: <Project/>},
+    // {index:true, element: <Home/>},
+    {index:true, element: <Project/>},
     ]}
   ])
   return <>
