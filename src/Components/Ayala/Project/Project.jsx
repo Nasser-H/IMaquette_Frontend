@@ -42,14 +42,26 @@ export default function Project() {
 
     // Defer scroll adjustment to after render using requestAnimationFrame
     requestAnimationFrame(() => {
-      container.scrollLeft = offsetX * scaleRatio - (cx - rect.left)
-      container.scrollTop = offsetY * scaleRatio - (cy - rect.top)
-      // If we are at (or below) fit scale, lock vertical scroll to top and hide it
+      // Propose new scrolls based on focal zooming
+      let nextScrollLeft = offsetX * scaleRatio - (cx - rect.left)
+      let nextScrollTop = offsetY * scaleRatio - (cy - rect.top)
+
+      // Clamp scrolls so we never reveal blank space
+      const contentW = baseWidth * newZoom
+      const contentH = baseHeight * newZoom
+      const maxScrollLeft = Math.max(0, contentW - container.clientWidth)
+      const maxScrollTop = Math.max(0, contentH - container.clientHeight)
+
+      // At or below fit, snap to fit and center horizontally
       const atFit = newZoom <= fitScaleRef.current + EPS
       if (atFit) {
-        container.scrollTop = 0
+        nextScrollTop = 0
+        nextScrollLeft = Math.max(0, (contentW - container.clientWidth) / 2)
         container.style.overflowY = 'hidden'
       }
+
+      container.scrollLeft = clamp(nextScrollLeft, 0, maxScrollLeft)
+      container.scrollTop = clamp(nextScrollTop, 0, maxScrollTop)
     })
   }, [zoom])
 
