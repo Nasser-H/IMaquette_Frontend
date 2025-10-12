@@ -9,7 +9,7 @@ import AddIcons from './Components/Ayala/Project/AddIcons'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import Orbite from './Components/Ayala/Project/Orbite'
-import Three from './Components/Ayala/Project/three'
+import Three from './Components/Ayala/Project/Three'
 
 function App() {
   const routers = createBrowserRouter([
