@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 
-export default function ImageViewer360() {
+export default function Three() {
   const containerRef = useRef(null);
   const mouseRef = useRef({ x: 0, y: 0, lon: 0, lat: 0 });
   const isDraggingRef = useRef(false);
